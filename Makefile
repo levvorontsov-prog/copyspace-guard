@@ -21,6 +21,12 @@ endif
 	copyspace-guard analyze --csv examples/ring15.csv --bw 256 --roi examples/roi.yml --summary-only --outdir /tmp/copyspace-guard-demo
 	copyspace-guard gate /tmp/copyspace-guard-demo/summary.json --config examples/copyspace_guard.yml
 
+test-core:
+	python -m ruff check --no-cache .
+	python -m mypy src
+	PYTHONPYCACHEPREFIX=/tmp/copyspace-guard-pycache python -m compileall -q src tests
+	COVERAGE_FILE=/tmp/copyspace-guard.coverage python -m unittest tests/test_core.py  -v
+
 dev-setup:
 	python -m pip install -e ".[dev]"
 

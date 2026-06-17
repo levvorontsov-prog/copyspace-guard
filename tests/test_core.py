@@ -32,7 +32,7 @@ from copyspace_guard.core import (  # noqa: E402
 )
 from copyspace_guard.types import Report  # noqa: E402
 from copyspace_guard.anonymize import anonymize_demands_csv, anonymize_schedule_csv  # noqa: E402
-from copyspace_guard.io import csv_safe_cell, dump_json, iter_schedule_csv_ticks, load_config, load_json, read_demands_csv, write_schedule_csv  # noqa: E402
+from copyspace_guard.io import csv_safe_cell, dump_json, iter_schedule_csv_ticks, load_config, load_json, read_demands_csv, read_demands_csv_ex, write_schedule_csv  # noqa: E402
 from copyspace_guard.report import _inline_html, render_html, render_markdown, write_reports  # noqa: E402
 from copyspace_guard.schema import validate_report_contract, validate_schedule_contract  # noqa: E402
 import tools.release_artifacts as release_artifacts  # noqa: E402
@@ -647,6 +647,58 @@ class IoAndContractTests(unittest.TestCase):
             write_schedule_csv(sched_path, sched)
             self.assertEqual(schedule_from_csv(sched_path), sched)
             self.assertEqual(len(list(iter_schedule_csv_ticks(sched_path, fill_empty_ticks=False))), 2)
+
+
+    def test_csv_helpers_ex(self, encoding="utf-8"):
+        comment = (
+            "# comment src_slot,dst_slot,bits_total\n"
+            "# \t blan, blah, blah\n"
+        )
+        header = "  \t src_slot, \t dst_slot,bits_total\n   \t   \n"
+        data =  (
+            "  \t0, 1\t ,5\n  \t  \t  \n"
+            "  # line with some comments\n"
+            "  # next line with some comments\n"
+            "\t  1 ,2,\t7\n"
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            i = 0
+
+            i += 1
+            csv = root / f"test_csv_helpers_ex{i}.csv"
+            csv.write_text(data, encoding)
+            self.assertEqual(read_demands_csv_ex(csv), [(0, 1, 5), (1, 2, 7)])
+
+            i += 1
+            csv = root / f"test_csv_helpers_ex{i}.csv"
+            csv.write_text(comment + data, encoding)
+            self.assertEqual(read_demands_csv_ex(csv), [(0, 1, 5), (1, 2, 7)])
+
+            i += 1
+            csv = root / f"test_csv_helpers_ex{i}.csv"
+            csv.write_text(header + comment + data + comment, encoding)
+            self.assertEqual(read_demands_csv_ex(csv), [(0, 1, 5), (1, 2, 7)])
+            
+            i += 1
+            csv = root / f"test_csv_helpers_ex{i}.csv"
+            csv.write_text(comment + "\n" + header + "\n" + data, encoding)
+            rows = read_demands_csv_ex(csv)
+            self.assertEqual(rows, [(0, 1, 5), (1, 2, 7)])                
+
+            i += 1
+            csv = root / f"test_csv_helpers_ex{i}.csv"
+            csv.write_text(
+                "dummy, src_slot \t, \tdst_slot , bits_total\n"
+                "dummy, 0, 1\t ,5\n  \t  \t  "
+                "dummy, 1 ,2,\t7\n", encoding)
+            self.assertEqual(read_demands_csv_ex(csv), [(0, 1, 5), (1, 2, 7)])
+
+
+    def test_csv_helpers_ex_utf8sig(self):
+        self.test_csv_helpers_ex(encoding="utf-8-sig")
+
 
     def test_contract_validators_accept_and_reject_artifacts(self):
         inst = instance_from_csv(ROOT / "examples" / "ring15.csv", bw=256)

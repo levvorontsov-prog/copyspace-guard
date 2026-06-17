@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Tuple
 
 from .types import Chunk, Demand, Instance, MODEL, MODELS, Schedule
 
@@ -11,7 +11,7 @@ SPREADSHEET_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r", "\n")
 
 
 def _is_header_row(row: List[str], required: set[str]) -> bool:
-    fields = {str(x).strip().lstrip("\ufeff") for x in row}
+    fields = {str(x).lstrip("\ufeff").strip() for x in row}
     return required.issubset(fields)
 
 
@@ -101,6 +101,62 @@ def read_demands_csv(path: str | Path) -> List[Tuple[int, int, int]]:
     return rows
 
 
+def read_first_row_csv(reader: Iterable[List[str]]) -> List[str]:
+    for i, row in enumerate(reader, 1):
+        if not row: 
+            continue
+        if i == 1:
+            row[0] = row[0].lstrip("\ufeff")
+        if _is_comment_row(row) or _is_blank_row(row):
+            continue
+
+        return row
+    
+    return []
+
+def read_demands_csv_ex(path: str | Path) -> List[Tuple[int, int, int]]:
+    result: List[Tuple[int, int, int]] = []
+
+    # TODO:? utf-8-sig - simplify BOM processing
+    with open(path, "r", encoding="utf-8", newline="") as f:
+        reader = csv.reader(f)
+        first_row = read_first_row_csv(reader)
+
+        if first_row is None:
+            raise ValueError(f"no demands found in CSV: {path}")
+        
+        first_lineno = reader.line_num
+
+        required = {"src_slot", "dst_slot", "bits_total"}
+        is_header_row = _is_header_row(first_row, required)
+
+        if is_header_row:
+            fieldnames = [x.strip() for x in first_row]
+            src_slot = fieldnames.index("src_slot") 
+            dst_slot = fieldnames.index("dst_slot")
+            bits_total = fieldnames.index("bits_total")
+        else:
+            src_slot, dst_slot, bits_total = 0, 1, 2
+
+        def handle_row(i: int, row: List[str]): 
+            if not row or _is_comment_row(row) or _is_blank_row(row):
+                return
+            try:
+                result.append((int(row[src_slot]), int(row[dst_slot]), int(row[bits_total])))
+            except Exception as e:
+                raise ValueError(f"bad CSV in {path}, row {i}: {row}: expected src_slot,dst_slot,bits_total integers") from e
+
+        if not is_header_row:
+            handle_row(first_lineno, first_row)
+        
+        for i, row in enumerate(reader, start=first_lineno + 1):
+            handle_row(i, row)
+
+    if not result:
+        raise ValueError(f"no demands found in CSV: {path}")    
+    return result
+
+
 def instance_from_csv(
     path: str | Path,
     bw: int,
@@ -113,7 +169,10 @@ def instance_from_csv(
         raise ValueError(f"unsupported model: {model}")
     if bw <= 0:
         raise ValueError("copy bandwidth per tick must be > 0")
+
+    # TODO: new implementation: rows = read_demands_csv_ex(path)
     rows = read_demands_csv(path)
+
     max_slot = max(max(s, t) for s, t, _ in rows)
     slots2 = slots if slots is not None else max_slot + 1
     if slots2 <= 0:
