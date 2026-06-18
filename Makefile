@@ -1,31 +1,44 @@
 .PHONY: demo test security release-guard bump-version pilot-check wheel-smoke release-artifacts release-check clean docker-build build bench bench-suite production-check dev-setup
 
+CSV ?= examples/ring15.csv
+
+var-setup:
+ifeq ($(OS),Windows_NT)
+	set PYTHONPYCACHEPREFIX=/tmp/copyspace-guard-pycache 
+	set COVERAGE_FILE=/tmp/copyspace-guard.coverage 
+else
+	PYTHONPYCACHEPREFIX=/tmp/copyspace-guard-pycache 
+	COVERAGE_FILE=/tmp/copyspace-guard.coverage 
+endif
+
 demo:
 	copyspace-guard analyze --csv examples/ring15.csv --bw 256 --roi examples/roi.yml --outdir artifacts/demo
 
-test:
+demo-csv:
+	@echo $(CSV)
+	copyspace-guard analyze --csv $(CSV) --bw 256 --roi examples/roi.yml --outdir artifacts/demo
+
+demo-schedule:
+	copyspace-guard analyze \
+	--csv examples/demo_bad_current_demands.csv \
+	--bw 256 \
+	--current-schedule-csv examples/demo_bad_current_schedule.csv \
+	--outdir artifacts/audit
+
+test: var-setup
 	python -m ruff check --no-cache .
 	python -m mypy src
-ifeq ($(OS),Windows_NT)
-	set PYTHONPYCACHEPREFIX=/tmp/copyspace-guard-pycache 
 	python -m compileall -q src tests
-	set COVERAGE_FILE=/tmp/copyspace-guard.coverage 
 	python -m coverage run -m unittest discover -s tests -v
-	set COVERAGE_FILE=/tmp/copyspace-guard.coverage 
 	python -m coverage report --fail-under=80
-else
-	PYTHONPYCACHEPREFIX=/tmp/copyspace-guard-pycache python -m compileall -q src tests
-	COVERAGE_FILE=/tmp/copyspace-guard.coverage python -m coverage run -m unittest discover -s tests -v
-	COVERAGE_FILE=/tmp/copyspace-guard.coverage python -m coverage report --fail-under=80
-endif
 	copyspace-guard analyze --csv examples/ring15.csv --bw 256 --roi examples/roi.yml --summary-only --outdir /tmp/copyspace-guard-demo
 	copyspace-guard gate /tmp/copyspace-guard-demo/summary.json --config examples/copyspace_guard.yml
 
-test-core:
+test-core: var-setup
 	python -m ruff check --no-cache .
 	python -m mypy src
-	PYTHONPYCACHEPREFIX=/tmp/copyspace-guard-pycache python -m compileall -q src tests
-	COVERAGE_FILE=/tmp/copyspace-guard.coverage python -m unittest tests/test_core.py  -v
+	python -m compileall -q src tests
+	python -m unittest tests/test_core.py  -v
 
 dev-setup:
 	python -m pip install -e ".[dev]"
