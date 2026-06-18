@@ -329,6 +329,81 @@ def iter_schedule_csv_ticks(path: str | Path, *, fill_empty_ticks: bool = True) 
         yield current_chunks
 
 
+def iter_schedule_csv_ticks_ex(path: str | Path, *, fill_empty_ticks: bool = True) -> Iterator[List[Chunk]]:
+    """Stream a sorted schedule CSV as ticks.
+
+    The CSV must be sorted by non-decreasing tick. Missing ticks are emitted as
+    empty lists when fill_empty_ticks is True. This preserves elapsed windows
+    without materializing the entire schedule in memory.
+    """
+    current_tick: int | None = None
+    current_chunks: List[Chunk] = []
+    last_tick = -1
+
+    with open(path, "r", encoding="utf-8", newline="") as f:
+        rdr = csv.reader(f)
+        first_row = read_first_row_csv(rdr)
+        if first_row is None:
+            raise ValueError("no schedule rows found in CSV")
+        
+        first_lineno = rdr.line_num
+
+        required = {"tick", "src_slot", "dst_slot", "len_bits"}
+        is_header_row = _is_header_row(first_row, required)
+        if is_header_row:
+            fieldnames = [x.strip() for x in first_row]
+
+            f_tck = fieldnames.index("tick") 
+            f_src = fieldnames.index("src_slot") 
+            f_dst = fieldnames.index("dst_slot") 
+            f_len = fieldnames.index("len_bits")
+        else:
+            f_tck, f_src, f_dst, f_len = 0,1,2,3 
+
+        any_rows = False
+        rows : list[tuple[int,List[str]]] = [] if is_header_row else [(first_lineno, first_row)]
+        rows.extend(enumerate(rdr, start=first_lineno + 1))
+
+        for i, list_row in rows:
+            print(list_row)
+            if not list_row or _is_comment_row(list_row) or _is_blank_row(list_row):
+                continue
+            if len(list_row) < 4:
+                raise ValueError(f"bad schedule CSV row {i}: expected 4 columns")
+            
+            try:
+                ti = int(list_row[f_tck])
+                chunk: Chunk = {"src_slot": int(list_row[f_src]), "dst_slot": int(list_row[f_dst]), "len_bits": int(list_row[f_len])}
+            except Exception as e:
+                raise ValueError(f"bad schedule CSV row {i}: expected tick,src_slot,dst_slot,len_bits integers\n\t{list_row}") from e
+            if ti < 0:
+                raise ValueError(f"bad schedule CSV row {i}: tick must be >= 0\n\t{list_row}")
+            if ti < last_tick:
+                raise ValueError(f"bad schedule CSV row {i}: must be sorted by non-decreasing tick for streaming validation")
+            
+            any_rows = True
+            
+            if current_tick is None:
+                if fill_empty_ticks:
+                    for _ in range(ti):
+                        yield []
+                current_tick = ti
+            if ti != current_tick:
+                yield current_chunks
+                if fill_empty_ticks:
+                    for _ in range(current_tick + 1, ti):
+                        yield []
+                current_tick = ti
+                current_chunks = []
+
+            current_chunks.append(chunk)
+            last_tick = ti
+
+        if not any_rows:
+            raise ValueError(f"no schedule rows found in CSV: {path}")
+        yield current_chunks
+
+
 def schedule_from_csv(path: str | Path, *, fill_empty_ticks: bool = True, model: str = MODEL) -> Schedule:
     if model not in MODELS:
         raise ValueError(f"unsupported model: {model}")
