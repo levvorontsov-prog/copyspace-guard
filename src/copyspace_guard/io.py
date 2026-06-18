@@ -340,6 +340,7 @@ def iter_schedule_csv_ticks_ex(path: str | Path, *, fill_empty_ticks: bool = Tru
     current_chunks: List[Chunk] = []
     last_tick = -1
 
+    # TODO: utf-8-sig
     with open(path, "r", encoding="utf-8", newline="") as f:
         rdr = csv.reader(f)
         first_row = read_first_row_csv(rdr)
@@ -365,7 +366,6 @@ def iter_schedule_csv_ticks_ex(path: str | Path, *, fill_empty_ticks: bool = Tru
         rows.extend(enumerate(rdr, start=first_lineno + 1))
 
         for i, list_row in rows:
-            print(list_row)
             if not list_row or _is_comment_row(list_row) or _is_blank_row(list_row):
                 continue
             if len(list_row) < 4:
